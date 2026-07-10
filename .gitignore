@@ -1,0 +1,27 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Databases
+rebar_chroma_db/
+salit_chroma_db/
+
+# PDFs and Extracted Outputs
+*.pdf
+*_extracted.json
+*.xlsx
+*.xls
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Skill Archives
+*.skill
+
+# OS Files
+.DS_Store
+Thumbs.db
