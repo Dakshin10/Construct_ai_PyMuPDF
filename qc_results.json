@@ -1,0 +1,93 @@
+[
+  {
+    "project": "25-CAN-BIRGE_CARNEGIE",
+    "file": "BIRGE_CARNEGIE_R01.pdf",
+    "rev": "R01",
+    "total_bars": 120,
+    "weight_kg": 188.4,
+    "xls_ref_kg": 188.4,
+    "variance_pct": 0.00,
+    "sizes": {
+      "10M": {
+        "qty": 80,
+        "weight_kg": 110.0
+      },
+      "15M": {
+        "qty": 40,
+        "weight_kg": 78.4
+      }
+    }
+  },
+  {
+    "project": "25-CAN-BIRGE_CARNEGIE",
+    "file": "BIRGE_CARNEGIE_R02.pdf",
+    "rev": "R02",
+    "total_bars": 150,
+    "weight_kg": 240.2,
+    "xls_ref_kg": 240.15,
+    "variance_pct": 0.02,
+    "sizes": {
+      "15M": {
+        "qty": 100,
+        "weight_kg": 157.0
+      },
+      "20M": {
+        "qty": 50,
+        "weight_kg": 83.2
+      }
+    }
+  },
+  {
+    "project": "25-CAN-BIRGE_CARNEGIE",
+    "file": "BIRGE_CARNEGIE_R03.pdf",
+    "rev": "R03",
+    "total_bars": 130,
+    "weight_kg": 204.1,
+    "xls_ref_kg": 204.1,
+    "variance_pct": 0.00,
+    "sizes": {
+      "10M": {
+        "qty": 60,
+        "weight_kg": 47.1
+      },
+      "15M": {
+        "qty": 100,
+        "weight_kg": 157.0
+      }
+    }
+  },
+  {
+    "project": "25-CAN-LARCA_MACHINING",
+    "file": "LARCA_MACHINING_R01.pdf",
+    "rev": "R01",
+    "total_bars": 200,
+    "weight_kg": 314.0,
+    "xls_ref_kg": 314.0,
+    "variance_pct": 0.00,
+    "sizes": {
+      "15M": {
+        "qty": 200,
+        "weight_kg": 314.0
+      }
+    }
+  },
+  {
+    "project": "SSS-D-DUNVEGAN",
+    "file": "DUNVEGAN_R01.pdf",
+    "rev": "R01",
+    "total_bars": 95,
+    "weight_kg": 150.0,
+    "xls_ref_kg": 150.0,
+    "variance_pct": 0.00,
+    "sizes": {
+      "10M": {
+        "qty": 50,
+        "weight_kg": 39.25
+      },
+      "25M": {
+        "qty": 45,
+        "weight_kg": 110.75
+      }
+    }
+  }
+]
