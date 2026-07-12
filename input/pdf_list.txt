@@ -1,0 +1,19 @@
+# ============================================================
+#  PDF INPUT LIST  —  Rebar Extractor
+# ============================================================
+#
+#  HOW TO USE:
+#  - Add one PDF file name (or full path) per line
+#  - Lines starting with  #  are comments (ignored)
+#  - Blank lines are ignored
+#  - File names are relative to this  input/  folder
+#  - You can also paste absolute paths, e.g.:
+#      C:\Projects\drawings\building_a.pdf
+#
+# ============================================================
+
+20-055 - BUILDING-C Architectural Dwg. Set (Preliminary) 2.pdf
+20-055 - BUILDING-C Structural Dwg. Set.pdf
+
+# Add more PDFs below:
+
