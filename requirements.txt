@@ -4,3 +4,6 @@ sentence-transformers
 pandas
 openpyxl
 torch
+ollama
+python-dotenv
+groq

@@ -22,6 +22,9 @@ __pycache__/
 # Skill Archives
 *.skill
 
+# Environment / Secrets
+.env
+
 # OS Files
 .DS_Store
 Thumbs.db
