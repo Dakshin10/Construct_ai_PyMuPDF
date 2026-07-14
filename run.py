@@ -92,6 +92,7 @@ def main():
         from extract_rebar_pdf import process_pdf as process_structural
         from extract_general_pdf import (
             process_pdf as process_general, classify_pdf, split_garbled,
+            dedup_elements,
         )
     except ImportError as e:
         print(f"[ERROR] Could not import extractors from src/: {e}")
@@ -199,10 +200,17 @@ def main():
                       f"(element data comes from schedule tables below).")
 
             if result["schedule_elements"]:
+                # Show the SAME consolidated view that gets ingested/queried:
+                # collapse cross-sheet duplicate rows (e.g. two C1,C2 HSS column
+                # records + an unlabeled detail row → one column). Uses the shared
+                # dedup_elements so run.py can't diverge from the DB; verbose=False
+                # keeps the [dedup] log out of this display.
+                sched_display = dedup_elements(base_name, result["schedule_elements"],
+                                               verbose=False)
                 print(f"\n  Schedule Elements (from PIER/FOOTING/COLUMN/... tables):")
                 print(f"    {'TYPE':<11} {'MARKS':<12} {'SIZE':<14} {'#REBAR':<7} {'REBAR':<7} {'TIES':<14}")
                 print(f"    {'-'*11} {'-'*12} {'-'*14} {'-'*7} {'-'*7} {'-'*14}")
-                for el in result["schedule_elements"]:
+                for el in sched_display:
                     ties = el.get("ties_type") or "-"
                     if el.get("ties_spacing"):
                         ties += f" @{el['ties_spacing']}"

@@ -41,6 +41,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extract_general_pdf import (
     is_garbled, extract_schedules, extract_structure_facts, page_spans,
+    extract_plan_instances, extract_footing_pad_schedule,
 )
 
 
@@ -236,6 +237,8 @@ def process_pdf(pdf_path, verbose=False):
         "superseded_by_schedule": [],
         "schedule_elements": [],
         "schedules_detected": [],
+        "plan_instances": {},
+        "footing_schedule": {},
         "structure_facts": {},
         "unmapped_text": [],
         "summary": {}
@@ -281,6 +284,13 @@ def process_pdf(pdf_path, verbose=False):
     # Issue 2: parse PIER / FOOTING / COLUMN / BASE PLATE schedule tables from
     # span coordinates. These are the authoritative source of element rebar data.
     result["schedule_elements"], result["schedules_detected"] = extract_schedules(all_spans)
+
+    # Issue 8: plan-view instance counts (distinct F#,P# / C#,BP# callout
+    # locations) — the true "how many footings/columns" answer, vs. the handful
+    # of schedule types.
+    result["plan_instances"] = extract_plan_instances(all_spans)
+    # Issue 8/Q10: per-type footing sizes from the column-keyed pad schedule.
+    result["footing_schedule"] = extract_footing_pad_schedule(all_spans)
 
     # Marks owned by a schedule (P1, F1, C1, ...) — plan-view mentions of these
     # must NOT re-report or overwrite the schedule's data (Issue 2 dedup).

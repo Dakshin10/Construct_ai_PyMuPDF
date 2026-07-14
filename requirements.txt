@@ -1,9 +1,15 @@
-pymupdf
-chromadb
-sentence-transformers
-pandas
-openpyxl
-torch
-ollama
-python-dotenv
-groq
+# Pinned to the versions verified working for this pipeline (C4).
+# Core extraction + RAG
+pymupdf==1.27.2.3
+chromadb==1.5.9
+sentence-transformers==5.4.1
+torch==2.11.0
+
+# LLM generation backends
+ollama==0.6.2            # default local backend
+groq==0.37.1             # optional cloud fallback (--backend groq)
+python-dotenv==1.2.2     # loads .env (MODEL, OLLAMA_HOST, GROQ_API_KEY)
+
+# Excel bar-list extractor utilities
+pandas==3.0.2
+openpyxl>=3.1

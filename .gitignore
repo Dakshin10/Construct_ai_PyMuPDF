@@ -8,6 +8,9 @@ ENV/
 rebar_chroma_db/
 salit_chroma_db/
 
+# Generated query-suite reports
+test_runs/
+
 # PDFs and Extracted Outputs
 *.pdf
 *_extracted.json
@@ -28,3 +31,6 @@ __pycache__/
 # OS Files
 .DS_Store
 Thumbs.db
+
+run_query_suite.py
+/test

@@ -22,6 +22,10 @@ Usage:
     # Raw chunks only (skip the LLM generation step)
     python build_rag_db.py --query "total weight of B1 bars" --no-generate
 
+    # Clean output (answer text only — no routing line, separator, or timing footer)
+    python build_rag_db.py --query "how many storeys" --db salit --clean
+    python build_rag_db.py --query "total weight of B1 bars" --no-generate --clean
+
 Generation runs on a LOCAL model via Ollama by default — no API key needed.
 Start Ollama (`ollama serve`) and pull the model (`ollama pull qwen3:14b`).
 Model defaults to qwen3:14b; override with the MODEL env var (a local tag).
@@ -235,10 +239,10 @@ CONTEXT RULES:
   knowledge about typical construction practices unless the context is
   genuinely silent and you are making a clearly-labeled inference.
 - Context chunks are tagged with chunk_type (structure_overview,
-  element_summary, pdf_detail, or size_row), doc_type, and source_doc_id,
-  each with a chunk_id. Match the chunk_type to the question's
-  granularity. There may be any number of source documents contributing
-  chunks — do not assume exactly two.
+  element_summary, element_inventory, project_summary, pdf_detail, or
+  size_row), doc_type, and source_doc_id, each with a chunk_id. Match the
+  chunk_type to the question's granularity. There may be any number of
+  source documents contributing chunks — do not assume exactly two.
 - If the context does not contain enough information to answer, say so
   explicitly and name what's missing. Never guess a number.
 - If chunks from multiple documents are relevant, synthesize across all
@@ -258,6 +262,64 @@ ANSWER STYLE:
   specified" in that column rather than omitting the row. A missing row in
   an estimate is a more dangerous error than a row with a blank field. Do
   not drop, merge, or skip an element just because its data is incomplete.
+- CONCISENESS: When multiple fields are not specified for the same element,
+  group them into a single "Not specified: X, Y, Z" note rather than listing
+  each field separately in its own sentence or table note.
+- MATERIAL IS PER-ELEMENT, NOT PER-TYPE: two elements of the same
+  element_type (e.g. "beam") can be different materials — this project has
+  BOTH concrete beams (labelled "grade beam", carrying rebar_size/num_rebars,
+  e.g. 15M) AND steel beams (labelled "steel beam" with a W-shape/HSS
+  section, explicitly marked material=steel / rebar not applicable). When a
+  question asks to list elements of one material (e.g. "list all concrete
+  elements"), this is a COMPLETENESS-governed task: go chunk by chunk through
+  EVERY retrieved element_summary chunk of every type (not just the type
+  that's numerically dominant in context) and classify EACH one individually
+  by its own label and fields (a rebar_size present means concrete, not
+  steel) — do not silently skip a whole element_type, and do not decide a
+  type's material from the majority of its sibling chunks. A concrete grade
+  beam sitting among 11 steel beam chunks is still a concrete element and
+  MUST appear in the list; omitting it is the same completeness violation as
+  dropping a row from a table.
+- PHYSICAL QUANTITY vs SCHEDULE TYPE — pick the right source for "how many":
+  A question asking how many of an element exist ("how many footings/columns
+  are there?", "quantity of piers", "count all structural elements") is
+  asking for the PHYSICAL INSTANCE count. If an element_inventory chunk is
+  present, its per-type instance totals ARE that answer (e.g. "Footing: 49
+  instances") — use it verbatim and cite it. Do NOT answer such a question
+  from element_summary "Count:" fields: those count schedule TYPES/marks
+  (e.g. F1, F2, footing-6), not how many are built, and will massively
+  undercount. Only fall back to element_summary Count fields when NO
+  element_inventory chunk is present, and when you do, say explicitly that
+  the number is a count of schedule types/marks, not physical instances.
+- NEVER source an element count from a project_summary chunk (e.g. "Unique
+  bar-bending-schedule mark labels: N") or any other statistic. Bar-bending
+  mark labels (e.g. "F3", "F5") are a DIFFERENT concept from element
+  identifiers (e.g. "F1", "F2", "footing-6") even when they share a letter
+  prefix — never a source for an element count, never elements to enumerate.
+- COUNT-ALL / SUMMARY TABLE — one row per element TYPE, one source. When
+  asked to "count all structural elements" or return a summary table across
+  types, and an element_inventory chunk is present: the table has EXACTLY ONE
+  ROW per element type (footing, pier, column, base plate, beam, slab), and
+  each row's Count comes ONLY from that type's element_inventory instance
+  total. The element_summary chunks describe those SAME elements at
+  schedule-type granularity — use them only to fill a row's detail columns
+  (size, rebar), NEVER add them as their own extra rows. Do not list, e.g.,
+  both "Footing 49" (inventory) and "Footing F1,F2 2" (summary) as separate
+  lines — that double-counts the same elements. A grand total, if given, sums
+  only the one-per-type row counts.
+- QUOTE-THEN-SUM (do this for EVERY count you state — never write a bare
+  count number without showing where it came from): quote the literal
+  contributing values from the applicable count source (per the PHYSICAL
+  QUANTITY vs SCHEDULE TYPE rule above: element_inventory instance totals for
+  "how many/quantity" questions, else element_summary "Count:" fields), THEN
+  show the addition. From an element_inventory chunk, quote the per-mark
+  breakdown it lists and add it, e.g. "Footings = F1×33 + F2×6 + F4×6 +
+  F5×4 = 49". From element_summary Count fields, e.g. "footing-6: Count=1,
+  footing-7: Count=1, F1/F2: Count=2 -> 1 + 1 + 2 = 4 footing schedule
+  types". For a grand total across types, add the per-type numbers you just
+  derived, e.g. "Total = 2 + 1 + 4 + 2 + 2 + 1 = 12". Never state a count
+  you have not first built up from quoted chunk values — a count from
+  memory/estimation is wrong even if it looks plausible.
 
 STAGE 1 — Understand Structural Details
 Answer using structure_overview chunks: drawing type(s) present, material
@@ -289,10 +351,36 @@ ties, cover thickness.
 STAGE 6 — Apply Details / Abstract to Element-Level Estimate
 Summary table, element-wise: Beam/Footing/Column/Slab — [Type][Size]
 [Length][Stirrup Size][Weight in Kg].
+- Weight = bar length x count x unit weight (kg/m). Use the element's
+  extracted num_rebars/rebar_size AS-IS. Never recompute or substitute a
+  different bar count by dividing element size by spacing, or by any other
+  derivation — spacing describes bar placement, not bar quantity, and the
+  extracted count is authoritative.
+- Bar length (or a stock/cut length) is required to calculate weight. If it
+  is not present in the retrieved chunks for an element, do not estimate,
+  assume, or back into a length from unrelated dimensions — state plainly
+  that reinforcement weight cannot be calculated for that element because
+  bar length is not available in the drawings, and skip the Weight column
+  for that row (leave it "Not calculable", not a number).
 
 Given retrieved chunks and a user question, identify which stage the
 question belongs to (it may span more than one), then answer using only
-the relevant chunk types and format for that stage.
+the relevant chunk types and format for that stage. A question that maps
+to exactly one stage (e.g. "calculate reinforcement weight" -> STAGE 6
+only, "how many X" -> STAGE 4 only) should be answered using ONLY that
+stage's format — do not restate or re-derive earlier stages' output first.
+Keep the answer to the requested stage(s); do not pad with unrequested
+context.
+
+This trims FORMAT/verbosity only — it never relaxes the COMPLETENESS rule
+above. Answering in one stage's format still means scanning every
+retrieved element_summary chunk that matches the question's element
+type(s), not just the first one you find. A count/enumeration answer that
+only reflects one chunk when more matching chunks were retrieved is
+wrong, even if it looks concise — e.g. "how many footings" must sum
+EVERY footing chunk retrieved (an unlabeled aggregate like "footing-6"
+plus a labeled group like "F1, F2" are separate rows to add together, not
+alternatives to pick one of).
 """
 
 
@@ -370,13 +458,27 @@ def _generate_ollama(query, retrieved_chunks):
             {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE},
             {"role": "user",   "content": user_message},
         ]
-        opts = {"temperature": 0.2, "num_ctx": 8192}
+        # Perf tuning (measured): largest input is ~3k tokens (14 element chunks
+        # + system prompt), so num_ctx=7168 is right-sized and still leaves
+        # headroom for a capped output — smaller KV cache = faster.
+        # num_predict caps output so worst-case queries can't ramble (the long
+        # "Not specified" enumerations were the slowest); temperature low for
+        # deterministic estimator output. Raised 1000 -> 1400: MTO/weight-calc
+        # answers were hitting the old cap mid-table (Q32/Q33 truncation) even
+        # after the STAGE-skipping prompt fix below trims most of the wasted
+        # preamble — a modest headroom bump covers the remaining multi-element
+        # tables without materially increasing worst-case latency.
+        opts = {"temperature": 0.2, "num_ctx": 7168, "num_predict": 1400}
+        # keep_alive keeps the model resident between queries so the suite
+        # doesn't pay a reload if a gap exceeds Ollama's 5-min default.
         try:
             # think=False keeps reasoning models from spending tokens on a
             # <think> preamble; older ollama clients don't accept the kwarg.
-            resp = client.chat(model=model, messages=messages, options=opts, think=False)
+            resp = client.chat(model=model, messages=messages, options=opts,
+                               keep_alive="30m", think=False)
         except TypeError:
-            resp = client.chat(model=model, messages=messages, options=opts)
+            resp = client.chat(model=model, messages=messages, options=opts,
+                               keep_alive="30m")
         return _strip_think(resp["message"]["content"])
     except RuntimeError:
         raise
@@ -436,11 +538,19 @@ def _resolve_collection(db="rebar"):
 
 
 def query(question, n_results=5, db="rebar", generate=True,
-          doc_type=None, source_doc_id=None, backend=None):
+          doc_type=None, source_doc_id=None, backend=None, clean=False):
     """
     Full pipeline: retrieve -> route -> generate.
     Prints the generated answer; falls back to the raw chunk dump when
     generation is disabled or fails.
+
+    clean=True suppresses the routing debug line, the separator dashes, and
+    the timing footer — printing only the answer text (or raw chunk text when
+    --no-generate is set). This makes output safe to pipe or paste into reports.
+
+    NOTE: when generation fails and the code falls back to raw chunks, a one-line
+    warning is *always* printed regardless of clean mode. Silently hiding a
+    backend failure is considered more dangerous than the extra noise.
     """
     collection = _resolve_collection(db)
 
@@ -452,14 +562,15 @@ def query(question, n_results=5, db="rebar", generate=True,
     chunks, routing = retrieve(question, collection, n_results=n_results,
                                doc_type=doc_type, source_doc_id=source_doc_id)
 
-    print(f"\nQuery: {question}")
-    print(f"Routing: chunk_types={routing['matched_chunk_types'] or 'ALL'}"
-          f" | doc_type={routing['matched_doc_type'] or '-'}"
-          f" | source_doc_id={routing['matched_source_doc_id'] or '-'}"
-          f" | top_k={routing.get('n_results_used', n_results)}"
-          f"{' | enumerate' if routing.get('enumerate_intent') else ''}"
-          f"{' | (unfiltered fallback)' if routing['fallback_unfiltered'] else ''}")
-    print("-" * 50)
+    if not clean:
+        print(f"\nQuery: {question}")
+        print(f"Routing: chunk_types={routing['matched_chunk_types'] or 'ALL'}"
+              f" | doc_type={routing['matched_doc_type'] or '-'}"
+              f" | source_doc_id={routing['matched_source_doc_id'] or '-'}"
+              f" | top_k={routing.get('n_results_used', n_results)}"
+              f"{' | enumerate' if routing.get('enumerate_intent') else ''}"
+              f"{' | (unfiltered fallback)' if routing['fallback_unfiltered'] else ''}")
+        print("-" * 50)
 
     if generate:
         import time
@@ -468,22 +579,29 @@ def query(question, n_results=5, db="rebar", generate=True,
             answer = generate_answer(question, chunks, backend=backend)
             elapsed = time.time() - t0
             print(f"\n{answer}\n")
-            print(f"[generated in {elapsed:.1f}s via "
-                  f"{(backend or os.environ.get('LLM_BACKEND') or 'ollama')}"
-                  f" / MODEL={os.environ.get('MODEL', DEFAULT_OLLAMA_MODEL)}]")
+            if not clean:
+                print(f"[generated in {elapsed:.1f}s via "
+                      f"{(backend or os.environ.get('LLM_BACKEND') or 'ollama')}"
+                      f" / MODEL={os.environ.get('MODEL', DEFAULT_OLLAMA_MODEL)}]")
             return {"chunks": chunks, "routing": routing, "answer": answer,
                     "elapsed": elapsed}
         except RuntimeError as e:
+            # Always show the fallback warning — silently hiding a generation
+            # failure is more dangerous than the extra line under --clean.
             print(f"\n[generation unavailable] {e}")
             print("Falling back to raw chunks:\n")
 
+    # Raw chunk output — in clean mode, print only the text (no metadata/scores)
     for i, chunk in enumerate(chunks):
-        meta, dist = chunk["meta"], chunk["distance"]
-        relevance = round((1 - dist) * 100, 1)
-        print(f"\n[{i+1}] Relevance: {relevance}% "
-              f"| chunk_type: {meta.get('chunk_type', meta.get('type'))} "
-              f"| source: {meta.get('source_doc_id', meta.get('source'))}")
-        print(f"    {chunk['text']}")
+        if clean:
+            print(chunk["text"])
+        else:
+            meta, dist = chunk["meta"], chunk["distance"]
+            relevance = round((1 - dist) * 100, 1)
+            print(f"\n[{i+1}] Relevance: {relevance}% "
+                  f"| chunk_type: {meta.get('chunk_type', meta.get('type'))} "
+                  f"| source: {meta.get('source_doc_id', meta.get('source'))}")
+            print(f"    {chunk['text']}")
 
     return {"chunks": chunks, "routing": routing, "answer": None}
 
@@ -491,6 +609,29 @@ def query(question, n_results=5, db="rebar", generate=True,
 # ─────────────────────────────────────────────
 # 4. MAIN
 # ─────────────────────────────────────────────
+
+def _preflight_backend(backend=None):
+    """
+    C3: verify the generation backend is usable BEFORE loading the embedding
+    model and running retrieval, and fail fast with a clear message. Avoids the
+    slow-then-fail path where we'd embed + retrieve and only then discover Ollama
+    isn't running. Skipped when generation is disabled (--no-generate).
+    """
+    backend = (backend or os.environ.get("LLM_BACKEND") or "ollama").lower()
+    try:
+        if backend == "groq":
+            if not os.environ.get("GROQ_API_KEY"):
+                raise RuntimeError(
+                    "GROQ_API_KEY not set — required for --backend groq (see README).")
+        else:
+            _check_ollama(os.environ.get("MODEL", DEFAULT_OLLAMA_MODEL))
+    except RuntimeError as e:
+        print(f"[preflight] Generation backend '{backend}' unavailable: {e}",
+              file=sys.stderr)
+        print("[preflight] Aborting before embedding/retrieval. Fix the backend, "
+              "or pass --no-generate to run retrieval only.", file=sys.stderr)
+        sys.exit(2)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Rebar RAG DB Builder")
@@ -503,6 +644,12 @@ def main():
                              "or salit (project-level N-doc DB)")
     parser.add_argument("--no-generate", action="store_true",
                         help="Skip LLM generation; print raw chunks")
+    parser.add_argument("--clean", action="store_true",
+                        help="Clean output: suppress routing line, separator, and timing "
+                             "footer — prints only the answer text (or raw chunk text "
+                             "with --no-generate). Safe for piping or pasting into reports. "
+                             "NOTE: generation-failure warnings are always shown regardless "
+                             "of --clean, to avoid silently hiding backend errors.")
     parser.add_argument("--backend", choices=["ollama", "groq"], default=None,
                         help="LLM backend for generation (default: ollama)")
     parser.add_argument("--doc-type", help="Restrict to one doc_type")
@@ -510,9 +657,12 @@ def main():
     args = parser.parse_args()
 
     if args.query:
+        if not args.no_generate:
+            _preflight_backend(args.backend)   # C3: fail fast if backend is down
         query(args.query, n_results=args.results, db=args.db,
               generate=not args.no_generate, backend=args.backend,
-              doc_type=args.doc_type, source_doc_id=args.source_doc_id)
+              doc_type=args.doc_type, source_doc_id=args.source_doc_id,
+              clean=args.clean)
 
     elif args.input:
         with open(args.input) as f:

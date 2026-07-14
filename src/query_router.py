@@ -27,12 +27,24 @@ CHUNK_TYPE_KEYWORDS = {
         # on element_summary — route strength questions here.
         r"concrete\s+strength", r"\bstrength\b", r"\bMPa\b",
         r"wall\s+type", r"\bcurtain\s+wall\b", r"\bCMU\b",
+        # Project-wide reinforcement standards (cover / lap splice / min lap)
+        # live on the overview chunk's reinforcement_notes — pull it in for
+        # cover/lap/hook questions so availability checks see them (Issue 8/Q7).
+        r"\bcover\b", r"\blap\b", r"\bhook\b", r"reinforcement",
     ],
     "element_summary": [
         r"\bbeams?\b", r"\bfootings?\b", r"\bpiers?\b", r"\bcolumns?\b",
         r"\bslabs?\b", r"\bstirrups?\b", r"\bcover\b", r"\blap\b",
         r"\bhook\b", r"\bties\b", r"\bstock\s+length\b", r"\belements?\b",
         r"shape\s+type", r"bend(?:ing)?", r"how\s+many\s+(?:beams?|footings?|columns?|piers?|slabs?)",
+    ],
+    # Plan-view INSTANCE quantities (Issue 8). Count/quantity/how-many queries
+    # should see the element_inventory chunk (real instance counts) alongside
+    # element_summary (per-type detail). Kept separate so detail-only queries
+    # ("for each footing list cover…") don't pull it in.
+    "element_inventory": [
+        r"\bhow\s+many\b", r"\bquantit(?:y|ies)\b", r"\binstances?\b",
+        r"\b(?:number|count|no\.?|qty)\s+of\b", r"\bcount\s+all\b",
     ],
     "size_row": [
         r"\b\d{2}M\b", r"\b\d+\s*mm\s+bars?\b", r"linear\s+met(?:re|er)s?",
@@ -68,10 +80,43 @@ _ENUM_INTENT = [re.compile(p, re.I) for p in [
     # per-element availability audit (stage 2) — must cover every element
     r"\bavailability\s+of\b", r"\bpresent\s*/?\s*missing\b",
     r"check\s+(?:the\s+)?availability",
+    r"check\s+(?:whether|if)\b", r"\bis\s+available\b",
+    r"\bwhich\s+of\s+(?:the\s+)?following\b",
+    r"whether\s+the\s+following\s+information",
+    # counting queries ("how many footings are there?") — must see every
+    # element of that type, so enumerate rather than narrow top-k.
+    r"\bhow\s+many\s+(?:\w+\s+){0,3}?(?:elements?|columns?|footings?|piers?|beams?|slabs?|marks?|bars?|rebars?|stirrups?|ties)\b",
+    r"\b(?:number|count|no\.?|qty)\s+of\s+(?:\w+\s+){0,2}?(?:elements?|columns?|footings?|piers?|beams?|slabs?|marks?)\b",
 ]]
 
 # Never dump an unbounded collection into context.
 ENUM_MAX_K = 50
+
+# Single-element-type scoping (Issue 9 / Q28): a query naming exactly ONE
+# element type ("summarize every footing...", "how many columns...") should
+# retrieve ONLY that type's element_summary chunks — otherwise a query like
+# "summarize every footing by ... " pulls every element_summary chunk
+# (piers, columns, 11 steel beams, slab) and the answer scope-bleeds past
+# footings. A query naming 0 or 2+ distinct types (e.g. "beams, foundations,
+# columns, piers, slabs and walls") is intentionally broad — do not filter.
+_ELEMENT_TYPE_WORDS = {
+    "footing": "footing", "footings": "footing",
+    "column": "column", "columns": "column",
+    "beam": "beam", "beams": "beam",
+    "pier": "pier", "piers": "pier",
+    "slab": "slab", "slabs": "slab",
+    "base plate": "base_plate", "base plates": "base_plate",
+    "baseplate": "base_plate", "baseplates": "base_plate",
+}
+_ELEMENT_TYPE_RE = re.compile(
+    r"\b(" + "|".join(sorted(_ELEMENT_TYPE_WORDS, key=len, reverse=True)) + r")\b", re.I)
+
+
+def _detect_single_element_type(query):
+    """Return the one element_type value if exactly one distinct type is
+    named in the query, else None (0 or 2+ types => don't scope)."""
+    found = {_ELEMENT_TYPE_WORDS[m.group(1).lower()] for m in _ELEMENT_TYPE_RE.finditer(query)}
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _is_enumeration(query):
@@ -215,7 +260,7 @@ def retrieve(query, collection, n_results=6, doc_type=None, source_doc_id=None,
     def _cap(ct):
         if ct == "element_summary":
             return enum_k
-        if ct in ("structure_overview", "project_summary"):
+        if ct in ("structure_overview", "project_summary", "element_inventory"):
             return 2            # context types: a couple of chunks is plenty
         return n_results
 
@@ -223,12 +268,16 @@ def retrieve(query, collection, n_results=6, doc_type=None, source_doc_id=None,
     # (doc_type="aggregate"), so a doc_type/source filter inferred from the
     # query (e.g. "structural elements" → doc_type=structural) must NOT be
     # applied to them, or the aggregate chunk gets filtered out entirely.
-    _AGGREGATE_TYPES = {"structure_overview", "project_summary"}
+    _AGGREGATE_TYPES = {"structure_overview", "project_summary", "element_inventory"}
+
+    single_etype = _detect_single_element_type(query)
 
     def _where_for(ct):
         conds = [{"chunk_type": ct}]
         if ct not in _AGGREGATE_TYPES:
             conds += extra
+        if ct == "element_summary" and single_etype:
+            conds.append({"element_type": single_etype})
         return conds[0] if len(conds) == 1 else {"$and": conds}
 
     def _emit(res, out, seen):

@@ -71,7 +71,7 @@ def _std_meta(project_id, doc_type, source_doc_id, chunk_type, seq):
 # Fields aggregated into the structure_overview chunk
 _OVERVIEW_FIELDS = ["material", "storeys", "total_area", "foundation_type",
                     "beam_type", "column_type", "roof_type",
-                    "concrete_strength", "wall_type"]
+                    "concrete_strength", "wall_type", "reinforcement_notes"]
 
 
 # Fields where the STRUCTURAL document is the authority: when both a structural
@@ -196,97 +196,34 @@ _ELEMENT_FIELDS = ["size", "count", "num_rebars", "rebar_size", "shape_type",
                    "hook_length", "ties_type", "ties_length", "ties_spacing",
                    "marks", "source"]
 
-
-_REBAR_DATA_FIELDS = ("num_rebars", "rebar_size", "ties_type", "ties_spacing",
-                      "ties_length", "spacing", "size", "count", "stirrups")
-
-
-def _rebar_richness(el):
-    """How many rebar-ish fields are populated (for keep-the-richer dedup)."""
-    return sum(1 for f in _REBAR_DATA_FIELDS if el.get(f) not in (None, "", []))
-
-
-def _has_rebar_data(el):
-    return _rebar_richness(el) > 0
-
-
-def _merge_element(keeper, other):
-    """Fill keeper's empty fields from other; union marks. keeper wins ties."""
-    for k, v in other.items():
-        if k == "marks":
-            merged = list(dict.fromkeys((keeper.get("marks") or []) + (v or [])))
-            keeper["marks"] = merged
-        elif keeper.get(k) in (None, "", []) and v not in (None, "", []):
-            keeper[k] = v
-    if keeper.get("marks"):
-        keeper["label"] = ",".join(sorted(set(keeper["marks"])))
-    return keeper
+# Rebar/tie-geometry fields that don't apply to a steel (HSS) member — surfaced
+# as "Not applicable", not "Not specified", so the LLM doesn't read a steel
+# column as having missing data. In this project ALL columns are structural
+# steel HSS (confirmed project-wide), so element_type == "column" is treated
+# as steel here even when a specific record's own classify_member() verdict
+# came back "concrete" from weak/incidental keyword context (e.g. a stray
+# "...CENTER OF FOOTING & COLUMN 16-20M VERT..." mention inside an unrelated
+# pier detail) — see Issue 7.
+#
+# num_rebars/rebar_size are included too (Issue 9): extract_elements()
+# collapses every UNLABELED mention of an element_type into one shared
+# "<type>:general" record and calls classify_member() only ONCE for it, using
+# just the first 4 accumulated raw_lines — whichever keyword hit happened
+# first in the document. For "column:general" that's generic notes with no
+# HSS signal ("a.) All Columns..."), so the verdict comes back "concrete" and
+# _STEEL_CLEARED_FIELDS (which DOES already list num_rebars/rebar_size) never
+# fires, even though a later unrelated merge (the same stray "16-20M VERT."
+# pier fragment) populates them. Fixing classify_member's per-record context
+# would mean reworking the shared-key aggregation itself — out of scope here;
+# suppressing at chunk-build time via the already-established "columns are
+# steel HSS project-wide" convention is the consistent, minimal fix.
+_STEEL_INAPPLICABLE_FIELDS = ("cover", "hook_length", "lap_length", "spacing",
+                              "num_rebars", "rebar_size")
 
 
-def dedup_elements(project_id, elements):
-    """
-    FIX 2: collapse duplicate element_summary rows.
-
-    1. Rows sharing (project_id, element_type, label) are merged into the
-       richest one (field-union); sparser duplicates are dropped and logged.
-    2. Conservative association: when a type has exactly ONE labeled group that
-       carries NO rebar data and exactly ONE unlabeled record that DOES, fold
-       the data into the labeled row (so e.g. columns C1,C2 get their rebar/tie
-       data). Guarded so types whose labeled group already has data (footings,
-       piers) keep their distinct unlabeled rows untouched.
-    """
-    # --- Pass 1: merge exact (element_type, label) duplicates ---
-    groups = {}
-    passthrough = []   # records without a real label — kept as-is for now
-    for el in elements:
-        label = el.get("label")
-        if not label:
-            passthrough.append(el)
-            continue
-        key = (el.get("element_type"), label)
-        if key not in groups:
-            groups[key] = el
-        else:
-            keeper, drop = groups[key], el
-            if _rebar_richness(drop) > _rebar_richness(keeper):
-                keeper, drop = drop, keeper
-            _merge_element(keeper, drop)
-            groups[key] = keeper
-            print(f"  [dedup] dropped duplicate {drop.get('element_type')} "
-                  f"'{label}' from {drop.get('source_doc_id','?')} "
-                  f"(kept richer row for same mark)")
-
-    labeled = list(groups.values())
-
-    # --- Pass 2: conservative association of unlabeled data into empty labels ---
-    # Only within authoritative SCHEDULE data — never fold into noisy plan-view
-    # keyword elements (e.g. a "beam A325" where A325 is actually a bolt grade).
-    def _is_sched(el):
-        return el.get("source") == "schedule"
-
-    by_type = defaultdict(list)
-    for el in labeled:
-        by_type[el.get("element_type")].append(el)
-    remaining_unlabeled = []
-    for el in passthrough:
-        et = el.get("element_type")
-        if not (_is_sched(el) and _has_rebar_data(el)):
-            remaining_unlabeled.append(el)
-            continue
-        empty_labeled = [g for g in by_type.get(et, [])
-                         if _is_sched(g) and not _has_rebar_data(g)]
-        # sole empty schedule label for the type + sole unlabeled schedule data
-        siblings = [u for u in passthrough
-                    if u.get("element_type") == et and _is_sched(u) and _has_rebar_data(u)]
-        if len(empty_labeled) == 1 and len(siblings) == 1:
-            _merge_element(empty_labeled[0], el)
-            print(f"  [assoc] folded unlabeled {et} data "
-                  f"(rebar={el.get('rebar_size')}, n={el.get('num_rebars')}) "
-                  f"into '{empty_labeled[0].get('label')}'")
-            continue
-        remaining_unlabeled.append(el)
-
-    return labeled + remaining_unlabeled
+# Element de-dup lives in extract_general_pdf (single source of truth), used
+# by both the raw extractor (run.py) and ingestion here.
+from extract_general_pdf import dedup_elements
 
 
 def build_element_summary_chunks(project_id, elements):
@@ -302,21 +239,73 @@ def build_element_summary_chunks(project_id, elements):
     for seq, el in enumerate(elements):
         etype = el.get("element_type", "element")
         label = el.get("label") or f"{etype}-{seq}"
+        # Issue 3: deterministic count — number of marks if marked (e.g. C1,C2 → 2),
+        # else keep an explicitly extracted count, else 1. No LLM inference.
+        # Issue 3 / A2: deterministic count. Number of marks if marked (C1,C2 → 2),
+        # else 1. We do NOT trust an extracted `count` for unmarked elements — on
+        # these drawings the plan-view parser grabs stray "NO. N" numbers out of
+        # general-notes prose (e.g. slab-on-grade wrongly showed count=10).
+        marks = el.get("marks") or []
+        el["count"] = len(marks) if marks else 1
+        # See _STEEL_INAPPLICABLE_FIELDS comment: this project's columns are
+        # steel HSS throughout, so treat element_type == "column" as steel
+        # even if this specific record's own material tag wasn't set (a weak/
+        # incidental keyword match won't get the classify_member() context
+        # right, but the project-level fact still holds).
+        is_steel = el.get("material") == "steel" or etype == "column"
+
+        # Issue 8: this drawing set expresses transverse/hoop reinforcement as
+        # "TIES" (e.g. "10M TIES @ 300mm c/c.") — a sized "STIRRUPS ##M"
+        # callout never appears (only 2 boilerplate CSA-spec mentions of the
+        # bare word "stirrups" in the whole corpus, neither with a size; see
+        # KNOWN_LIMITATIONS.md). Rather than chase a term this corpus doesn't
+        # use, surface the already-extracted ties data under "stirrups" too —
+        # via a local `effective` view, so the source `el` dict (and its
+        # ties_type/ties_spacing fields) are never mutated or double-counted.
+        effective = dict(el)
+        stirrups_from_ties = None
+        if not el.get("stirrups") and el.get("ties_type"):
+            stirrups_from_ties = el["ties_type"]
+            if el.get("ties_spacing"):
+                stirrups_from_ties += f" @ {el['ties_spacing']}mm c/c."
+            effective["stirrups"] = stirrups_from_ties
+
         parts = [f"{etype.capitalize()} {label} in project {project_id}."]
+        # Surface steel HSS members so rebar reads as inapplicable, not missing.
+        if is_steel:
+            parts.append("Material: structural steel (HSS section) — rebar/cover, "
+                         "lap/hook length and spacing do not apply to this member.")
         for field in _ELEMENT_FIELDS:
-            val = el.get(field)
+            if is_steel and field in _STEEL_INAPPLICABLE_FIELDS:
+                continue   # reported separately below as "Not applicable"
+            val = effective.get(field)
             if val not in (None, "", []):
-                parts.append(f"{field.replace('_', ' ').capitalize()}: {val}.")
-        missing = [f for f in _ELEMENT_FIELDS if el.get(f) in (None, "", [])]
+                if field == "stirrups" and stirrups_from_ties:
+                    parts.append(
+                        f"Stirrups: {val} (this drawing set records transverse "
+                        f"reinforcement as \"ties\", not a sized \"stirrups\" "
+                        f"callout — value derived from ties_type/ties_spacing).")
+                else:
+                    parts.append(f"{field.replace('_', ' ').capitalize()}: {val}.")
+        suppressed = set(_STEEL_INAPPLICABLE_FIELDS) if is_steel else set()
+        missing = [f for f in _ELEMENT_FIELDS
+                   if f not in suppressed and effective.get(f) in (None, "", [])]
         if missing:
             parts.append(f"Not specified on drawing: {', '.join(missing)}.")
+        if suppressed:
+            parts.append(f"Not applicable (steel member): {', '.join(sorted(suppressed))}.")
 
         meta = _std_meta(project_id, el.get("doc_type", "structural"),
                          el.get("source_doc_id", ""), "element_summary", seq)
         meta["element_type"] = etype
         meta["element_label"] = str(label)
         for field in _ELEMENT_FIELDS:
-            meta[field] = str(el.get(field) or "")
+            if field in suppressed:
+                meta[field] = "Not applicable"
+            else:
+                meta[field] = str(effective.get(field) or "")
+        if stirrups_from_ties:
+            meta["stirrups_source"] = "ties"   # flags this as derived, not a native callout
 
         chunks.append({
             "id": f"element__{project_id}__{el.get('source_doc_id','')}__{etype}__{label}",

@@ -24,6 +24,13 @@ Additionally, this repository contains a generic spatial reconstruction tool to 
 7. [Query Routing](#-query-routing)
 8. [QC and Deduplication Strategy](#-qc-and-deduplication-strategy)
 
+> **⚠️ Before extending or debugging extraction, read [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md).**
+> It documents two source-document constraints that are **not** pipeline bugs:
+> (1) per-element bar/member **length is not extractable** from these drawings, so
+> MTO/weight can't be computed; (2) the **steel↔concrete schedule mis-anchoring**
+> failure mode (steel members absorbing concrete rebar) and the reusable
+> `classify_member` guard that prevents it.
+
 ---
 
 ## 🔍 Problem Statement
