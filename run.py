@@ -64,7 +64,7 @@ def read_pdf_list(list_path: str) -> list[str]:
     entries = []
     with open(list_path, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
+            line = line.strip().strip('"').strip("'")
             if not line or line.startswith("#"):
                 continue
             entries.append(line)

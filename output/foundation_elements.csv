@@ -1,0 +1,8 @@
+Col 1: Site Name,Col 2: Segment,Col 3: PDF Link,Col 4: Image Link,Col 5: Type,Col 6: Length (mm),Col 7: Width (mm),Col 8: Height (mm),Col 9: QTY
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,F1,1300.0,1300.0,400.0,33
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,F2,2050.0,1300.0,400.0,6
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,F3,2500.0,1300.0,400.0,0
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,F4,2500.0,2500.0,850.0,6
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,F5,2000.0,2000.0,500.0,5
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,P1,500.0,500.0,,44
+Planlayout,Foundation,C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf,D:\MinoriLabs-intern\Connstruct_ai_assitant\Construct_ai_PyMuPDF\output\images\planlayout_page1.png,P2,1250.0,500.0,,6

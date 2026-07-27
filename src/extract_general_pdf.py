@@ -1131,8 +1131,10 @@ def extract_elements(text_lines, rejections=None):
 # from the handful of schedule types. Only the combined format is used: it's an
 # unambiguous plan-instance stamp, unlike a bare "F1" that may be a schedule or
 # section reference.
-_PLAN_COMBO_RE = re.compile(r"^(F\d{1,2})\s*,\s*(P\d{1,2})$"
-                            r"|^(C\d{1,2})\s*,\s*(BP\d{1,2})$", re.I)
+_PLAN_COMBO_RE = re.compile(r"^(F\d{1,2})\s*,?\s*(P\d{1,2})$"
+                            r"|^(C\d{1,2})\s*,?\s*(BP\d{1,2})$"
+                            r"|^(C\d{1,2})$"
+                            r"|^(F\d{1,2})$", re.I)
 
 
 def extract_plan_instances(spans, cluster_px=3):
@@ -1144,29 +1146,64 @@ def extract_plan_instances(spans, cluster_px=3):
     Locations within `cluster_px` on a page are treated as one (guards against
     a callout drawn twice for bold/shadow effect).
     """
+    import math
     # Bucket callout locations per (page, mark-pair) then dedupe by cluster.
     seen = defaultdict(set)   # (footing_mark, pier_mark) or (col_mark, bp_mark) -> {(page, cx, cy)}
     kind = {}                 # pair -> ("footing","pier") | ("column","base_plate")
     for s in spans:
+        # Ignore callouts in schedule/details on the left side of the sheet (x < 1200)
+        if s["x"] < 1200:
+            continue
         m = _PLAN_COMBO_RE.match(s["text"].strip())
         if not m:
             continue
         if m.group(1):        # F#,P#
             a, b = m.group(1).upper(), m.group(2).upper()
             kind[(a, b)] = ("footing", "pier")
-        else:                 # C#,BP#
+        elif m.group(3):                 # C#,BP#
             a, b = m.group(3).upper(), m.group(4).upper()
             kind[(a, b)] = ("column", "base_plate")
+        elif m.group(5):                 # Bare C#
+            a, b = m.group(5).upper(), None
+            kind[(a, b)] = ("column", None)
+        else:                            # Bare F#
+            a, b = m.group(6).upper(), None
+            kind[(a, b)] = ("footing", None)
         cx = round(s["x"] / cluster_px) * cluster_px
         cy = round(s["y"] / cluster_px) * cluster_px
         seen[(a, b)].add((s["page"], cx, cy))
+
+    # Gather all footing/pier locations to validate column alignments
+    footing_locs = set()
+    for (a, b), locs in seen.items():
+        if kind[(a, b)][0] == "footing":
+            for page, cx, cy in locs:
+                footing_locs.add((page, cx, cy))
 
     out = {"footing": defaultdict(int), "pier": defaultdict(int),
            "column": defaultdict(int), "base_plate": defaultdict(int)}
     for (a, b), locs in seen.items():
         t_a, t_b = kind[(a, b)]
-        out[t_a][a] += len(locs)
-        out[t_b][b] += len(locs)
+        
+        # Only apply column-footing proximity check if footings are present on the plan
+        if t_a == "column" and footing_locs:
+            # Filter out duplicate/phantom columns that do not align with any footing
+            filtered_locs = []
+            for page, cx, cy in locs:
+                has_footing = False
+                for f_page, fx, fy in footing_locs:
+                    if f_page == page and math.hypot(cx - fx, cy - fy) <= 50:
+                        has_footing = True
+                        break
+                if has_footing:
+                    filtered_locs.append((page, cx, cy))
+            locs = filtered_locs
+
+        if locs:
+            out[t_a][a] += len(locs)
+            if t_b:
+                out[t_b][b] += len(locs)
+            
     # plain dicts, drop empty types
     return {et: dict(marks) for et, marks in out.items() if marks}
 

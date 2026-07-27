@@ -12,8 +12,8 @@
 #
 # ============================================================
 
-20-055 - BUILDING-C Architectural Dwg. Set (Preliminary) 2.pdf
-20-055 - BUILDING-C Structural Dwg. Set.pdf
+
 
 # Add more PDFs below:
 
+"C:\Users\daksh\OneDrive - MinoriLabs\Construction_ai_assitant\planlayout.pdf"

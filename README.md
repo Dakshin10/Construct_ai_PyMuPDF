@@ -47,13 +47,21 @@ Estimators at Salit Steel manually inspect structural drawing sets (PDFs) and ex
 This project solves the above problems using a multi-stage local pipeline:
 ```mermaid
 graph TD
-    A[Rebar CAD PDFs<br/>structural / architectural / mechanical / ...] -->|extract_rebar_pdf.py| B1[Structured JSON<br/>Bar Marks & Weights]
+    UI[Gradio Web UI<br/>app.py] -->|1. Run Batch Extraction| A[Rebar CAD PDFs<br/>structural / architectural / mechanical / ...]
+    UI -->|2. Search & RAG Query| E[Keyword Intent Router]
+    UI -->|3. Upload & Ingest| IngestRoute[Ingestion Pipeline]
+
+    A -->|extract_rebar_pdf.py| B1[Structured JSON<br/>Bar Marks & Weights]
     A -->|extract_general_pdf.py| B2[Text Lines<br/>Structure Facts & Elements]
-    B1 & B2 -->|ingest_project.py / ingest_to_chroma.py| C[5-Tier Semantic Chunker]
+
+    B1 & B2 -->|ingest_project.py / ingest_to_chroma.py| IngestRoute
+    IngestRoute -->|5-Tier Semantic Chunker| C[5-Tier Semantic Chunker]
     C -->|all-MiniLM-L6-v2 Local Embeddings| D[(Local ChromaDB<br/>Vector Store)]
-    D -->|query_router.py| E[Keyword Intent Router]
+
+    D -->|query_router.py| E
     E -->|Filtered Similarity Search| F[Retrieved Chunks]
-    F -->|build_ragdb.py + Ollama local LLM| G[LLM-Generated Answer]
+    F -->|build_ragdb.py + Ollama / Groq LLM| G[LLM-Generated Answer]
+    G -->|Conversational Output| UI
 ```
 
 ### Stage 1 — Vector PDF Extraction & Deduplication (`extract_rebar_pdf.py`)
@@ -90,6 +98,7 @@ Uses the `all-MiniLM-L6-v2` embedding model (runs completely local on CPU) to em
 
 | File / Folder | Purpose |
 |---|---|
+| [app.py](file:///d:/MinoriLabs-intern/Connstruct_ai_assitant/Construct_ai_PyMuPDF/app.py) | Conversational Web interface for querying, PDF ingestion, and running pipelines. |
 | [run.py](run.py) | Main runner script at the root. Reads PDFs from `input/pdf_list.txt`, runs the extractor on them, prints summaries, and outputs JSON files to `output/`. |
 | [input/](input/) | Input folder where PDFs to be processed should be placed. |
 | [input/pdf_list.txt](input/pdf_list.txt) | List file where you can paste the file names of the PDFs you want to extract (one per line). |
@@ -272,6 +281,20 @@ For structural drawings where the bar schedule is rotated 90 degrees or has no g
 ```bash
 python rebar-barlist-extractor/scripts/extract_rebar_dwg.py "path_to_drawing.pdf" "output_report.xlsx"
 ```
+
+### Step 9: Conversational Web Interface (Gradio App)
+For a premium, local-first interactive dashboard to run queries, ingest files, and monitor the pipeline:
+1. Ensure Ollama is running (`ollama serve`) and the default model is pulled (`ollama pull qwen3:14b`).
+2. Run the Gradio application script:
+   ```bash
+   python app.py
+   ```
+   *Note: Startup is optimized to launch instantly (under 1s) and fallback to the next open port (e.g. 7861, 7862) automatically if port 7860 is occupied.*
+3. Open **[http://127.0.0.1:7860](http://127.0.0.1:7860)** in your web browser.
+4. UI Features:
+   - **🔍 Estimator Chat Agent**: Conversational chat area displaying multi-turn history. Expand the collapsible *View Sources & Routing Info* toggle under each AI answer bubble to inspect matching document chunks and scoring details. Configure the database (`rebar` vs `salit`), LLM backend, top-K, and doc filters dynamically in the collapsed *Advanced Settings* panel.
+   - **📥 Ingest Drawing Document**: Upload PDF drawings (structural, architectural, mechanical, civil-site, general) or pre-extracted JSON files. Execute validations/dry-runs to audit accepted/rejected elements. Monitor real-time logs.
+   - **⚙️ Pipeline & Database Inspector**: Tweak `input/pdf_list.txt` contents, launch `run.py` batch pipeline with streamed stdout outputs, and refresh collection stats/chunk counts.
 
 ---
 
